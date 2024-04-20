@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyi
+*.egg-info/
+dist/
+build/
+*.egg
+*.swp
+
+# Virtual Environment
+venv/
+env/
+env.bak/
+env1/
+env2/
+
+# VS Code
+.vscode/
+*.code-workspace
+*.vsix
+.vs/
+*.log
+
+# macOS
+.DS_Store
+
+# JetBrains IDEs
+.idea/
+
+# Node.js
+node_modules/
+
+# Compiled files
+*.class
+*.jar
+*.war
+*.ear
+
+# Build output
+out/
+target/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
