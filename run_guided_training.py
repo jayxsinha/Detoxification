@@ -1,23 +1,19 @@
-# Copyright 2023 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 # Reference: https://github.com/huggingface/trl/blob/main/examples/research_projects/toxicity/scripts/gpt-j-6b-toxicity.py
+
+# TODO: Implement Evaluation loop for model checkpointing.
+# TODO: Implement DPOTrainer for training the model.
+# TODO: Implement a single run_training.py script to run the training loop for PPO and DPO.
+# [Optional]
+# TODO: Implement synthetic data generation script for training the model.
+
 import os
 os.environ['HF_HOME'] = '/project/pi_mccallum_umass_edu/jsinha_umass_edu'
+WANDB_ENTITY="jaysinha"
+WANDB_PROJECT="Guided-Detoxification"
+os.environ['WANDB_ENTITY'] = WANDB_ENTITY
+os.environ['WANDB_PROJECT'] = WANDB_PROJECT
 from dataclasses import dataclass, field
 from typing import Optional
-from .custom_logits_processor import ExpertOnlyLogitsProcessor, ExpertAmateurLogitsProcessor
 import torch
 from datasets import load_dataset
 from torch.optim import Adam
@@ -28,12 +24,61 @@ from transformers import (
     HfArgumentParser,
     RobertaForSequenceClassification,
     RobertaTokenizer,
-    LogitsProcessorList
+    LogitsProcessorList,
+    LogitsProcessor,
 )
-
+import numpy as np
 from trl import AutoModelForCausalLMWithValueHead, PPOConfig, PPOTrainer, create_reference_model, set_seed
 from trl.core import LengthSampler
 
+
+########################################################################
+class ExpertOnlyLogitsProcessor(LogitsProcessor):
+    """
+    This processor uses the expert only to guide the generations of the larger model.
+    """
+    def __init__(self, large_model, alpha=0.1, beta=0.6):
+        self.alpha = alpha
+        self.beta = beta
+        self.large_model = large_model
+
+
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+        large_model_logits = self.large_model(input_ids).logits
+        # print("large_model_logits shape: ", large_model_logits.shape)
+        # print("a max: ", large_model_logits.cpu().max(dim=-1, keepdim=True).values)
+        # print("a max.shape: ", large_model_logits.cpu().max(dim=-1, keepdim=True).values.shape)
+        cutoff = np.log(self.alpha) + large_model_logits.cpu().max(dim=-1, keepdim=True).values
+        # print("cutoff: ", cutoff.shape)
+        diffs = large_model_logits + self.beta * scores
+        # print("diffs shape: ", diffs.shape)
+        final_logits = diffs.masked_fill(large_model_logits < cutoff.to(device), -float("inf"))
+        # print("final_logits shape: ", final_logits.shape)
+        return final_logits.squeeze()       
+    
+class ExpertAmateurLogitsProcessor(LogitsProcessor):
+    """
+    This processor uses the expert and amateur both to guide the generations of the larger model.
+    """
+
+    def __init__(self, large_model, amateur_model, alpha=0.1, beta=0.6):
+        self.alpha = alpha
+        self.beta = beta
+        self.large_model = large_model
+        self.amateur_model = amateur_model
+
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+        large_model_logits = self.large_model(input_ids).logits
+        amateur_logits = self.amateur_model(input_ids).logits
+
+        cutoff = np.log(self.alpha) + large_model_logits.max(dim=-1, keepdim=True)
+        
+        diffs = large_model_logits + self.beta * scores - amateur_logits
+        
+        final_logits = diffs.masked_fill(large_model_logits < cutoff, -float("inf"))
+        
+        return final_logits   
+########################################################################
 
 tqdm.pandas()
 
@@ -43,7 +88,7 @@ now = datetime.datetime.now()
 current_time = now.strftime("%Y%m%d-%H%M")
 model_save_path = '/project/pi_mccallum_umass_edu/jsinha_umass_edu/ctg-detox-' + current_time
 
-
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 ########################################################################
 # This is a fully working simple example to use trl with accelerate.
@@ -80,7 +125,7 @@ class ScriptArguments:
     log_with: Optional[str] = field(default=None, metadata={"help": "use 'wandb' to log with wandb"})
     learning_rate: Optional[float] = field(default=(1.47e-5) * 2, metadata={"help": "the learning rate"})
     mini_batch_size: Optional[int] = field(default=4, metadata={"help": "the PPO minibatch size"})
-    batch_size: Optional[int] = field(default=16, metadata={"help": "the batch size"})
+    batch_size: Optional[int] = field(default=8, metadata={"help": "the batch size"})
     gradient_accumulation_steps: Optional[int] = field(
         default=1, metadata={"help": "the number of gradient accumulation steps"}
     )
@@ -111,18 +156,18 @@ script_args = parser.parse_args_into_dataclasses()[0]
 
 
 if script_args.guidance_mode == "expert_only":
-    large_model = AutoModelForCausalLM.from_pretrained("EleutherAI/gpt-neo-2.7B")
+    large_model = AutoModelForCausalLM.from_pretrained("EleutherAI/gpt-neo-2.7B").to(device)
     logits_processor = ExpertOnlyLogitsProcessor(large_model)
 else:
-    large_model = AutoModelForCausalLM.from_pretrained("EleutherAI/gpt-neo-2.7B")
-    amateur_model = AutoModelForCausalLM.from_pretrained("EleutherAI/gpt-neo-125m")
+    large_model = AutoModelForCausalLM.from_pretrained("EleutherAI/gpt-neo-2.7B").to(device)
+    amateur_model = AutoModelForCausalLM.from_pretrained("EleutherAI/gpt-neo-125m").to(device)
     logits_processor = ExpertAmateurLogitsProcessor(large_model, amateur_model)
 
 config = PPOConfig(
     model_name=script_args.model_name,
     learning_rate=script_args.learning_rate,
     log_with=script_args.log_with,
-    ppo_epochs=100,
+    ppo_epochs=1,
     mini_batch_size=script_args.mini_batch_size,
     batch_size=script_args.batch_size,
     gradient_accumulation_steps=script_args.gradient_accumulation_steps,
@@ -186,6 +231,7 @@ def collator(data):
     return {key: [d[key] for d in data] for key in data[0]}
 
 
+
 # set seed before initializing value head for deterministic eval
 set_seed(config.seed)
 
@@ -193,10 +239,10 @@ set_seed(config.seed)
 # in bfloat16 to save memory using `transformers`.
 model = AutoModelForCausalLM.from_pretrained(config.model_name, torch_dtype=torch.bfloat16)
 # And then we pass the loaded model to `AutoModelForCausalLMWithValueHead`.
-model = AutoModelForCausalLMWithValueHead.from_pretrained(model)
+model = AutoModelForCausalLMWithValueHead.from_pretrained(model).to(device)
 
-# We create a reference model by sharing 20 layers
-ref_model = create_reference_model(model, num_shared_layers=20)
+# We create a reference model by sharing 12 layers
+ref_model = create_reference_model(model, num_shared_layers=6).to(device)
 
 # We make sure to use `Adam` optimizer on the model parameters that require gradients.
 optimizer = Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config.learning_rate)
@@ -232,12 +278,15 @@ toxicity_model = RobertaForSequenceClassification.from_pretrained(toxicity_model
 # the `generate` function of the trained model.
 generation_kwargs = {
     "min_length": -1,
-    "top_k": 0.0,
-    "top_p": 1.0,
+    "max_new_tokens": 20,
+    "top_k": 20,
+    "top_p": 0.9,
     "do_sample": True,
     "pad_token_id": tokenizer.eos_token_id,
     "logits_processor": LogitsProcessorList([logits_processor]),
+    "num_return_sequences": 1,
 }
+
 output_min_length = 20
 output_max_length = 30
 output_length_sampler = LengthSampler(output_min_length, output_max_length)
@@ -245,8 +294,8 @@ output_length_sampler = LengthSampler(output_min_length, output_max_length)
 model_save_path = script_args.model_save_path
 
 for epoch, batch in tqdm(enumerate(ppo_trainer.dataloader)):
+    # print(batch)
     query_tensors = batch["input_ids"]
-
     # Get response from the policy model
     response_tensors = []
     for query in query_tensors:
@@ -271,6 +320,6 @@ for epoch, batch in tqdm(enumerate(ppo_trainer.dataloader)):
     ppo_trainer.log_stats(stats, batch, rewards)
 
     # Save model every 100 epochs
-    if epoch % 100 == 0:
-        if ppo_trainer.accelerator.is_main_process:
-            ppo_trainer.save_pretrained(model_save_path)
+    # if epoch % 1 == 0:
+    if ppo_trainer.accelerator.is_main_process:
+        ppo_trainer.save_pretrained(model_save_path)

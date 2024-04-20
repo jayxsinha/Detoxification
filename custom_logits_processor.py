@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from transformers import LogitsProcessor
 import torch
 import numpy as np
