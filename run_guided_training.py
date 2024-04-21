@@ -44,7 +44,12 @@ class ExpertOnlyLogitsProcessor(LogitsProcessor):
 
 
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+        # print("input_ids shape: ", input_ids.shape)
+        # print("scores shape: ", scores.shape)
         large_model_logits = self.large_model(input_ids).logits
+
+        # Only take the last token of the input_ids
+        large_model_logits = large_model_logits[:, -1, :]
         # print("large_model_logits shape: ", large_model_logits.shape)
         # print("a max: ", large_model_logits.cpu().max(dim=-1, keepdim=True).values)
         # print("a max.shape: ", large_model_logits.cpu().max(dim=-1, keepdim=True).values.shape)
@@ -54,7 +59,8 @@ class ExpertOnlyLogitsProcessor(LogitsProcessor):
         # print("diffs shape: ", diffs.shape)
         final_logits = diffs.masked_fill(large_model_logits < cutoff.to(device), -float("inf"))
         # print("final_logits shape: ", final_logits.shape)
-        return final_logits.squeeze()       
+        # print("final_logits: ", final_logits.shape)
+        return final_logits       
     
 class ExpertAmateurLogitsProcessor(LogitsProcessor):
     """
@@ -124,8 +130,9 @@ class ScriptArguments:
     model_name: Optional[str] = field(default="EleutherAI/gpt-neo-125m", metadata={"help": "the model name"})
     log_with: Optional[str] = field(default=None, metadata={"help": "use 'wandb' to log with wandb"})
     learning_rate: Optional[float] = field(default=(1.47e-5) * 2, metadata={"help": "the learning rate"})
-    mini_batch_size: Optional[int] = field(default=4, metadata={"help": "the PPO minibatch size"})
-    batch_size: Optional[int] = field(default=8, metadata={"help": "the batch size"})
+    mini_batch_size: Optional[int] = field(default=32, metadata={"help": "the PPO minibatch size"})
+    batch_size: Optional[int] = field(default=64, metadata={"help": "the batch size"})
+    steps: Optional[int] = field(default=1, metadata={"help": "the number of training steps"})
     gradient_accumulation_steps: Optional[int] = field(
         default=1, metadata={"help": "the number of gradient accumulation steps"}
     )
@@ -156,11 +163,14 @@ script_args = parser.parse_args_into_dataclasses()[0]
 
 
 if script_args.guidance_mode == "expert_only":
-    large_model = AutoModelForCausalLM.from_pretrained("EleutherAI/gpt-neo-2.7B").to(device)
+    large_model = AutoModelForCausalLM.from_pretrained("EleutherAI/gpt-neo-1.3B").to(device)
+    large_model = large_model.eval()
     logits_processor = ExpertOnlyLogitsProcessor(large_model)
 else:
-    large_model = AutoModelForCausalLM.from_pretrained("EleutherAI/gpt-neo-2.7B").to(device)
+    large_model = AutoModelForCausalLM.from_pretrained("EleutherAI/gpt-neo-1.3B").to(device)
+    large_model = large_model.eval()
     amateur_model = AutoModelForCausalLM.from_pretrained("EleutherAI/gpt-neo-125m").to(device)
+    amateur_model = amateur_model.eval()
     logits_processor = ExpertAmateurLogitsProcessor(large_model, amateur_model)
 
 config = PPOConfig(
@@ -216,7 +226,7 @@ def build_dataset(
     ds = ds.map(tokenize, batched=False)
     ds.set_format(type="torch")
 
-    ds = ds.train_test_split(test_size=0.2, shuffle=False)["train"]
+    ds = ds.train_test_split(test_size=0.9, shuffle=False)["train"]
 
     return ds
 
