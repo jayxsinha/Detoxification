@@ -130,9 +130,9 @@ class ScriptArguments:
     model_name: Optional[str] = field(default="EleutherAI/gpt-neo-125m", metadata={"help": "the model name"})
     log_with: Optional[str] = field(default=None, metadata={"help": "use 'wandb' to log with wandb"})
     learning_rate: Optional[float] = field(default=(1.47e-5) * 2, metadata={"help": "the learning rate"})
-    mini_batch_size: Optional[int] = field(default=32, metadata={"help": "the PPO minibatch size"})
-    batch_size: Optional[int] = field(default=64, metadata={"help": "the batch size"})
-    steps: Optional[int] = field(default=1, metadata={"help": "the number of training steps"})
+    mini_batch_size: Optional[int] = field(default=64, metadata={"help": "the PPO minibatch size"})
+    batch_size: Optional[int] = field(default=128, metadata={"help": "the batch size"})
+    steps: Optional[int] = field(default=None, metadata={"help": "the number of training steps"})
     gradient_accumulation_steps: Optional[int] = field(
         default=1, metadata={"help": "the number of gradient accumulation steps"}
     )
