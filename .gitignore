@@ -48,3 +48,6 @@ target/
 
 # Temporary files
 *.tmp
+
+
+output/
