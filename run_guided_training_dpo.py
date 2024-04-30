@@ -23,6 +23,7 @@ from transformers import (
     RobertaTokenizer,
     LogitsProcessorList,
     LogitsProcessor,
+    pipeline,
 )
 import numpy as np
 from trl import AutoModelForCausalLMWithValueHead, PPOConfig, PPOTrainer, create_reference_model, set_seed, DPOConfig, DPOTrainer
@@ -48,8 +49,8 @@ class ExpertOnlyLogitsProcessor(LogitsProcessor):
         cutoff = np.log(self.alpha) + large_model_logits.cpu().max(dim=-1, keepdim=True).values
         diffs = large_model_logits + self.beta * scores
         final_logits = diffs.masked_fill(large_model_logits < cutoff.to(device), -float("inf"))
-        return final_logits       
-    
+        return final_logits
+
 class ExpertAmateurLogitsProcessor(LogitsProcessor):
     """
     This processor uses the expert and amateur both to guide the generations of the larger model.
@@ -74,8 +75,8 @@ class ExpertAmateurLogitsProcessor(LogitsProcessor):
         cutoff = np.log(self.alpha) + large_model_logits.cpu().max(dim=-1, keepdim=True).values
         diffs = large_model_logits + self.beta * scores - self.gamma * amateur_logits
         final_logits = diffs.masked_fill(large_model_logits < cutoff.to(device), -float("inf"))
-        
-        return final_logits   
+
+        return final_logits
 ########################################################################
 
 tqdm.pandas()
@@ -85,7 +86,7 @@ import datetime
 now = datetime.datetime.now()
 current_time = now.strftime("%Y%m%d-%H%M")
 # model_save_path = '/project/pi_mccallum_umass_edu/jsinha_umass_edu/ctg-detox-' + current_time
-model_save_path = './model/ctg-detox-' + current_time
+model_save_path = './model/ctg-detox-dpo'
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -192,7 +193,7 @@ def calculate_max_length(dataset):
     max_input_length = max(len(tokenizer.encode(prompt)) for prompt in dataset["prompt"])
     max_output_length = max(max(len(tokenizer.encode(chosen)), len(tokenizer.encode(rejected))) for chosen, rejected in zip(dataset["chosen"], dataset["rejected"]))
     max_prompt_length = max(max_input_length, max_output_length)
-    max_length = max_input_length + max_output_length  
+    max_length = max_input_length + max_output_length
     return max_length, max_prompt_length
 
 # Calculate max_length and max_prompt_length
@@ -252,3 +253,25 @@ for n, param in previous_trainable_params.items():
 trainer.save_model(training_args.output_dir)
 
 
+# inference
+
+pipeline = pipeline(
+    "text-generation",
+    model=model_save_path,
+    tokenizer=tokenizer
+)
+
+
+for prompt in dataset["prompt"]:
+
+  # Generate text
+  sequences = pipeline(
+      prompt,
+      do_sample=True,
+      temperature=0.7,
+      top_p=0.9,
+      num_return_sequences=1,
+      max_length=200,
+  )
+  print(sequences[0]['generated_text'])
+  print("===" * 10)
