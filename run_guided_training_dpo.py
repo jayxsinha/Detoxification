@@ -4,7 +4,7 @@
 # TODO: Implement synthetic data generation script for training the model.
 
 import os
-# os.environ['HF_HOME'] = '/project/pi_mccallum_umass_edu/jsinha_umass_edu'
+os.environ['HF_HOME'] = '/project/pi_mccallum_umass_edu/jsinha_umass_edu'
 # WANDB_ENTITY="jaysinha"
 # WANDB_PROJECT="Guided-Detoxification"
 # os.environ['WANDB_ENTITY'] = WANDB_ENTITY
@@ -49,19 +49,20 @@ class ExpertOnlyLogitsProcessor(LogitsProcessor):
         cutoff = np.log(self.alpha) + large_model_logits.cpu().max(dim=-1, keepdim=True).values
         diffs = large_model_logits + self.beta * scores
         final_logits = diffs.masked_fill(large_model_logits < cutoff.to(device), -float("inf"))
-        return final_logits
-
+        return final_logits       
+    
 class ExpertAmateurLogitsProcessor(LogitsProcessor):
     """
     This processor uses the expert and amateur both to guide the generations of the larger model.
     """
 
-    def __init__(self, large_model, amateur_model, alpha=0.1, beta=0.6, gamma=0.5):
+    def __init__(self, large_model, amateur_model, tokenizer, alpha=0.1, beta=0.6, gamma=0.5):
         self.alpha = alpha
         self.beta = beta
         self.gamma = gamma
         self.large_model = large_model
         self.amateur_model = amateur_model
+        self.tokenizer = tokenizer
 
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
 
@@ -76,7 +77,8 @@ class ExpertAmateurLogitsProcessor(LogitsProcessor):
         diffs = large_model_logits + self.beta * scores - self.gamma * amateur_logits
         final_logits = diffs.masked_fill(large_model_logits < cutoff.to(device), -float("inf"))
 
-        return final_logits
+
+        return final_logits   
 ########################################################################
 
 tqdm.pandas()
@@ -85,8 +87,8 @@ tqdm.pandas()
 import datetime
 now = datetime.datetime.now()
 current_time = now.strftime("%Y%m%d-%H%M")
-# model_save_path = '/project/pi_mccallum_umass_edu/jsinha_umass_edu/ctg-detox-' + current_time
-model_save_path = './model/ctg-detox-dpo'
+model_save_path = '/project/pi_mccallum_umass_edu/jsinha_umass_edu/ctg-detox-dpo-' + current_time
+# model_save_path = './model/ctg-detox-dpo'
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -160,6 +162,28 @@ parser = HfArgumentParser(ScriptArguments)
 script_args = parser.parse_args_into_dataclasses(return_remaining_strings=True)[0]
 
 
+def init_dataset():
+    with open("./output/mixed_dpo_train_data_20240503.json", "r") as f:
+        dummy_dataset_dict = json.load(f)
+    return Dataset.from_dict(dummy_dataset_dict["dataset_dict"])
+
+
+def init_dummy_dataset():
+    with open("./data/dpo_dataset.json", "r") as f:
+        dummy_dataset_dict = json.load(f)
+    return Dataset.from_dict(dummy_dataset_dict["dummy_dataset_dict"])
+
+# Test the function
+# dataset = init_dummy_dataset()
+dataset = init_dataset()
+
+
+# print(dataset[1])
+model = AutoModelForCausalLM.from_pretrained(script_args.model_name)
+ref_model = AutoModelForCausalLM.from_pretrained(script_args.model_name)
+tokenizer = AutoTokenizer.from_pretrained(script_args.model_name)
+tokenizer.pad_token = tokenizer.eos_token
+tokenizer.padding_side = "left"
 
 if script_args.guidance_mode == "expert_only":
     large_model = AutoModelForCausalLM.from_pretrained(script_args.large_model_name).to(device)
@@ -170,23 +194,8 @@ else:
     large_model = large_model.eval()
     amateur_model = AutoModelForCausalLM.from_pretrained(script_args.amateur_model_name).to(device)
     amateur_model = amateur_model.eval()
-    logits_processor = ExpertAmateurLogitsProcessor(large_model, amateur_model)
+    logits_processor = ExpertAmateurLogitsProcessor(large_model, amateur_model, tokenizer=tokenizer)
 
-
-def init_dummy_dataset():
-    with open("./data/dpo_dataset.json", "r") as f:
-        dummy_dataset_dict = json.load(f)
-    return Dataset.from_dict(dummy_dataset_dict["dummy_dataset_dict"])
-
-# Test the function
-dataset = init_dummy_dataset()
-
-
-# print(dataset[1])
-model = AutoModelForCausalLM.from_pretrained(script_args.model_name)
-ref_model = AutoModelForCausalLM.from_pretrained(script_args.model_name)
-tokenizer = AutoTokenizer.from_pretrained(script_args.model_name)
-tokenizer.pad_token = tokenizer.eos_token
 
 
 def calculate_max_length(dataset):
@@ -255,23 +264,23 @@ trainer.save_model(training_args.output_dir)
 
 # inference
 
-pipeline = pipeline(
-    "text-generation",
-    model=model_save_path,
-    tokenizer=tokenizer
-)
+# pipeline = pipeline(
+#     "text-generation",
+#     model=model_save_path,
+#     tokenizer=tokenizer
+# )
 
 
-for prompt in dataset["prompt"]:
+# for prompt in dataset["prompt"]:
 
-  # Generate text
-  sequences = pipeline(
-      prompt,
-      do_sample=True,
-      temperature=0.7,
-      top_p=0.9,
-      num_return_sequences=1,
-      max_length=200,
-  )
-  print(sequences[0]['generated_text'])
-  print("===" * 10)
+#   # Generate text
+#   sequences = pipeline(
+#       prompt,
+#       do_sample=True,
+#       temperature=0.7,
+#       top_p=0.9,
+#       num_return_sequences=1,
+#       max_length=200,
+#   )
+#   print(sequences[0]['generated_text'])
+#   print("===" * 10)

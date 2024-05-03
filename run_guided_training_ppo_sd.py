@@ -82,8 +82,6 @@ class ExpertAmateurLogitsProcessor(LogitsProcessor):
         next_token_probs = torch.softmax(next_token_logits, dim=-1)
         next_token_id = torch.argmax(next_token_probs).item()
         next_token = self.tokenizer.decode(next_token_id)
-        print("Input: ", self.tokenizer.decode(input_ids[0]))
-        print("Next token: ", next_token)
 
 
         return final_logits   
