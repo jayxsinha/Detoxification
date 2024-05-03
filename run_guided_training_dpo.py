@@ -5,10 +5,8 @@
 
 import os
 os.environ['HF_HOME'] = '/project/pi_mccallum_umass_edu/jsinha_umass_edu'
-# WANDB_ENTITY="jaysinha"
-# WANDB_PROJECT="Guided-Detoxification"
-# os.environ['WANDB_ENTITY'] = WANDB_ENTITY
-# os.environ['WANDB_PROJECT'] = WANDB_PROJECT
+os.environ['WANDB_ENTITY'] = "jaysinha"
+os.environ['WANDB_PROJECT'] = "trl"
 from dataclasses import dataclass, field
 from typing import Optional
 import torch
@@ -217,18 +215,16 @@ ref_model = AutoModelForCausalLM.from_pretrained(script_args.model_name)
 
 training_args = DPOConfig(
                     output_dir=model_save_path,
-                    per_device_train_batch_size=2,
-                    max_steps=10,
+                    per_device_train_batch_size=4,
                     remove_unused_columns=False,
                     gradient_accumulation_steps=1,
                     learning_rate=script_args.learning_rate,
                     evaluation_strategy="steps",
-                    beta=script_args.beta,
+                    beta=0.1,
                     max_prompt_length=max_prompt_length,
                     max_length=max_length,
-                    fp16=True,
-                    logging_strategy="no",
-                    report_to="none",
+                    fp16=False,
+                    report_to=script_args.log_with,
                 )
 
 

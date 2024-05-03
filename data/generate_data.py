@@ -23,12 +23,11 @@ def get_model_and_tokenizer(model_id):
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         trust_remote_code=True,
-        token='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',
         load_in_8bit=True,
     )
     # model.config.use_cache = False
     
-    tokenizer = AutoTokenizer.from_pretrained(model_id, token='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')
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.padding_side = 'left'
     tokenizer.pad_token = tokenizer.eos_token
 
