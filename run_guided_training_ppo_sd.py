@@ -55,12 +55,13 @@ class ExpertAmateurLogitsProcessor(LogitsProcessor):
     This processor uses the expert and amateur both to guide the generations of the larger model.
     """
 
-    def __init__(self, large_model, amateur_model, alpha=0.1, beta=0.6, gamma=0.5):
+    def __init__(self, large_model, amateur_model, tokenizer, alpha=0.1, beta=0.6, gamma=0.5):
         self.alpha = alpha
         self.beta = beta
         self.gamma = gamma
         self.large_model = large_model
         self.amateur_model = amateur_model
+        self.tokenizer = tokenizer
 
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
 
@@ -75,6 +76,16 @@ class ExpertAmateurLogitsProcessor(LogitsProcessor):
         diffs = large_model_logits + self.beta * scores - self.gamma * amateur_logits
         final_logits = diffs.masked_fill(large_model_logits < cutoff.to(device), -float("inf"))
         
+
+        # Run the final_logits and print the next token
+        next_token_logits = final_logits[0]
+        next_token_probs = torch.softmax(next_token_logits, dim=-1)
+        next_token_id = torch.argmax(next_token_probs).item()
+        next_token = self.tokenizer.decode(next_token_id)
+        print("Input: ", self.tokenizer.decode(input_ids[0]))
+        print("Next token: ", next_token)
+
+
         return final_logits   
 ########################################################################
 
@@ -122,11 +133,12 @@ class ScriptArguments:
     model_name: Optional[str] = field(default="gpt2", metadata={"help": "the model name"})
     large_model_name: Optional[str] = field(default="gpt2-large", metadata={"help": "the large model name"})
     amateur_model_name: Optional[str] = field(default="gpt2", metadata={"help": "the amateur model name"})
-    log_with: Optional[str] = field(default='wandb', metadata={"help": "use 'wandb' to log with wandb"})
+    log_with: Optional[str] = field(default=None, metadata={"help": "use 'wandb' to log with wandb"})
     learning_rate: Optional[float] = field(default=(1.47e-5) * 2, metadata={"help": "the learning rate"})
-    mini_batch_size: Optional[int] = field(default=64, metadata={"help": "the PPO minibatch size"})
-    batch_size: Optional[int] = field(default=128, metadata={"help": "the batch size"})
+    mini_batch_size: Optional[int] = field(default=32, metadata={"help": "the PPO minibatch size"})
+    batch_size: Optional[int] = field(default=64, metadata={"help": "the batch size"})
     steps: Optional[int] = field(default=None, metadata={"help": "the number of training steps"})
+    ppo_epochs: Optional[int] = field(default=4, metadata={"help": "the number of PPO epochs"})
     gradient_accumulation_steps: Optional[int] = field(
         default=1, metadata={"help": "the number of gradient accumulation steps"}
     )
@@ -158,23 +170,11 @@ parser = HfArgumentParser(ScriptArguments)
 script_args = parser.parse_args_into_dataclasses()[0]
 
 
-
-if script_args.guidance_mode == "expert_only":
-    large_model = AutoModelForCausalLM.from_pretrained(script_args.large_model_name).to(device)
-    large_model = large_model.eval()
-    logits_processor = ExpertOnlyLogitsProcessor(large_model)
-else:
-    large_model = AutoModelForCausalLM.from_pretrained(script_args.large_model_name).to(device)
-    large_model = large_model.eval()
-    amateur_model = AutoModelForCausalLM.from_pretrained(script_args.amateur_model_name).to(device)
-    amateur_model = amateur_model.eval()
-    logits_processor = ExpertAmateurLogitsProcessor(large_model, amateur_model)
-
 config = PPOConfig(
     model_name=script_args.model_name,
     learning_rate=script_args.learning_rate,
     log_with=script_args.log_with,
-    ppo_epochs=1,
+    ppo_epochs=script_args.ppo_epochs,
     mini_batch_size=script_args.mini_batch_size,
     batch_size=script_args.batch_size,
     gradient_accumulation_steps=script_args.gradient_accumulation_steps,
@@ -243,7 +243,7 @@ def build_dataset(
 # {"prefix": "prefix text", "continuation": "continuation text", "score": "score"}
 
 data = []
-with jsonlines.open('output/toxic_to_benign_20240425.jsonl', 'r') as reader:
+with jsonlines.open('output/ppo_train_data_20240427.jsonl', 'r') as reader:
     data = [line for line in reader]
 
 
@@ -280,6 +280,18 @@ optimizer = Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=confi
 # only for this model.
 tokenizer = AutoTokenizer.from_pretrained(config.model_name)
 tokenizer.pad_token = tokenizer.eos_token
+
+if script_args.guidance_mode == "expert_only":
+    large_model = AutoModelForCausalLM.from_pretrained(script_args.large_model_name).to(device)
+    large_model = large_model.eval()
+    logits_processor = ExpertOnlyLogitsProcessor(large_model, alpha=script_args.alpha, beta=script_args.beta)
+else:
+    large_model = AutoModelForCausalLM.from_pretrained(script_args.large_model_name).to(device)
+    large_model = large_model.eval()
+    amateur_model = AutoModelForCausalLM.from_pretrained(script_args.amateur_model_name).to(device)
+    amateur_model = amateur_model.eval()
+    logits_processor = ExpertAmateurLogitsProcessor(large_model, amateur_model, tokenizer=tokenizer, alpha=script_args.alpha, beta=script_args.beta, gamma=script_args.gamma)
+
 
 # We then build the PPOTrainer, passing the model, the reference model, the tokenizer
 ppo_trainer = PPOTrainer(
@@ -346,6 +358,7 @@ for epoch, batch in tqdm(enumerate(ppo_trainer.dataloader)):
 
     # Run PPO step
     stats = ppo_trainer.step(query_tensors, response_tensors, rewards)
+    exit(0)
     ppo_trainer.log_stats(stats, batch, rewards)
 
     # Save model every 100 epochs

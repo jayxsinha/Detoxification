@@ -123,7 +123,7 @@ class ScriptArguments:
     model_name: Optional[str] = field(default="gpt2", metadata={"help": "the model name"})
     large_model_name: Optional[str] = field(default="gpt2-large", metadata={"help": "the large model name"})
     amateur_model_name: Optional[str] = field(default="gpt2", metadata={"help": "the amateur model name"})
-    log_with: Optional[str] = field(default=None, metadata={"help": "use 'wandb' to log with wandb"})
+    log_with: Optional[str] = field(default='wandb', metadata={"help": "use 'wandb' to log with wandb"})
     learning_rate: Optional[float] = field(default=(1.47e-5) * 2, metadata={"help": "the learning rate"})
     mini_batch_size: Optional[int] = field(default=64, metadata={"help": "the PPO minibatch size"})
     batch_size: Optional[int] = field(default=128, metadata={"help": "the batch size"})
@@ -259,9 +259,9 @@ optimizer = Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=confi
 # only for this model.
 tokenizer = AutoTokenizer.from_pretrained(config.model_name)
 tokenizer.pad_token = tokenizer.eos_token
-print(dataset)
 
-exit(0)
+
+
 # We then build the PPOTrainer, passing the model, the reference model, the tokenizer
 ppo_trainer = PPOTrainer(
     config,

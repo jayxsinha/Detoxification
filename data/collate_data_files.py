@@ -5,20 +5,20 @@
 import jsonlines
 from datetime import datetime
 
-# data_files = [  '../output/scored_toxic_benign_l3-meta-llama-Meta-Llama-3-8B-Instruct-214909.jsonl', 
-#                 '../output/scored_toxic_benign_mistral-mistralai-Mistral-7B-Instruct-v0.2-223309.jsonl'
-#              ]
-
-positive_data_files = [  '../output/scored_toxic_benign_l3-meta-llama-Meta-Llama-3-8B-Instruct-214909.jsonl', 
+data_files = [  '../output/scored_toxic_benign_l3-meta-llama-Meta-Llama-3-8B-Instruct-214909.jsonl', 
                 '../output/scored_toxic_benign_mistral-mistralai-Mistral-7B-Instruct-v0.2-223309.jsonl'
              ]
 
-negative_data_files = [  '../output/scored_toxic_toxic_l3-meta-llama-Meta-Llama-3-8B-Instruct-233659.jsonl', 
-                '../output/scored_toxic_toxic_l3-mistralai-Mistral-7B-Instruct-v0.2-002319.jsonl'
-             ]
+# positive_data_files = [  '../output/scored_toxic_benign_l3-meta-llama-Meta-Llama-3-8B-Instruct-214909.jsonl', 
+#                 '../output/scored_toxic_benign_mistral-mistralai-Mistral-7B-Instruct-v0.2-223309.jsonl'
+#              ]
 
-type_of_data_files = 'dpo_train_data'
-score_threshold = 0.5
+# negative_data_files = [  '../output/scored_toxic_toxic_l3-meta-llama-Meta-Llama-3-8B-Instruct-233659.jsonl', 
+#                 '../output/scored_toxic_toxic_l3-mistralai-Mistral-7B-Instruct-v0.2-002319.jsonl'
+#              ]
+
+type_of_data_files = 'ppo_train_data'
+score_threshold = 0.35
 
 def collate_files(data_files, type_of_data_files, score_threshold):
 
@@ -74,4 +74,5 @@ def collate_pairs_file(positive_data_files, negative_data_files, type_of_data_fi
         for line in final_result:
             writer.write(line)
 
-collate_pairs_file(positive_data_files, negative_data_files, type_of_data_files, score_threshold)
+# collate_pairs_file(positive_data_files, negative_data_files, type_of_data_files, score_threshold)
+collate_files(data_files, type_of_data_files, score_threshold)
