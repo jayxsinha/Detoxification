@@ -136,7 +136,7 @@ class ScriptArguments:
     mini_batch_size: Optional[int] = field(default=32, metadata={"help": "the PPO minibatch size"})
     batch_size: Optional[int] = field(default=64, metadata={"help": "the batch size"})
     steps: Optional[int] = field(default=None, metadata={"help": "the number of training steps"})
-    ppo_epochs: Optional[int] = field(default=4, metadata={"help": "the number of PPO epochs"})
+    ppo_epochs: Optional[int] = field(default=20, metadata={"help": "the number of PPO epochs"})
     gradient_accumulation_steps: Optional[int] = field(
         default=1, metadata={"help": "the number of gradient accumulation steps"}
     )
@@ -172,7 +172,7 @@ config = PPOConfig(
     model_name=script_args.model_name,
     learning_rate=script_args.learning_rate,
     log_with=script_args.log_with,
-    ppo_epochs=script_args.ppo_epochs,
+    ppo_epochs=20,
     mini_batch_size=script_args.mini_batch_size,
     batch_size=script_args.batch_size,
     gradient_accumulation_steps=script_args.gradient_accumulation_steps,
